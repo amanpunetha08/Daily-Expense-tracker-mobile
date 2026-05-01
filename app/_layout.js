@@ -1,9 +1,19 @@
-import { Stack, Redirect } from 'expo-router';
+import { Stack, Redirect, useSegments, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
+import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../lib/auth';
 
 function RootLayoutNav() {
   const { user, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    const inAuth = segments[0] === 'login';
+    if (!user && !inAuth) router.replace('/login');
+    else if (user && inAuth) router.replace('/(tabs)/dashboard');
+  }, [user, loading, segments]);
 
   if (loading) {
     return (
@@ -15,11 +25,9 @@ function RootLayoutNav() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      {user ? (
-        <Stack.Screen name="(tabs)" />
-      ) : (
-        <Stack.Screen name="login" />
-      )}
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="login" />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
     </Stack>
   );
 }
