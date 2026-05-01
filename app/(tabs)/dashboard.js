@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 
@@ -12,6 +13,7 @@ const monthStr = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [month, setMonth] = useState(new Date());
   const [data, setData] = useState(null);
   const [insight, setInsight] = useState(null);
@@ -47,7 +49,7 @@ export default function Dashboard() {
   const over = totalSpent > b.budget && b.budget > 0;
 
   return (
-    <ScrollView style={s.bg} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+    <ScrollView style={s.bg} contentContainerStyle={[s.content, { paddingTop: insets.top + 16 }]} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={s.header}>
         <View>
