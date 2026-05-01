@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 
@@ -33,7 +34,7 @@ export default function Dashboard() {
     setLoading(false);
   }, [month]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [month]));
 
   const shift = dir => setMonth(p => { const d = new Date(p); d.setMonth(d.getMonth() + dir); return d; });
 
