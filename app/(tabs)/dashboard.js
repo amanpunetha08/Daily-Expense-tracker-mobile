@@ -1,172 +1,242 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const CAT_COLORS = ['#4f46e5','#06b6d4','#f59e0b','#ef4444','#10b981','#8b5cf6','#ec4899','#f97316'];
+const CAT_ICONS = { 'Personal Care': '💄', Household: '🏠', Dairy: '🥛', Vegetables: '🥬', 'Grocery / Spices': '🛒', 'Frozen Food': '🧊', Transport: '🚗', Bills: '📄', Entertainment: '🎬', Health: '💊', Other: '📦' };
+const W = Dimensions.get('window').width;
 
-function fmt(n) { return `₹${(n || 0).toLocaleString()}`; }
-function monthStr(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
-function monthLabel(d) { return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`; }
+const fmt = n => `₹${Math.round(n || 0).toLocaleString('en-IN')}`;
+const monthStr = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [month, setMonth] = useState(new Date());
   const [data, setData] = useState(null);
+  const [insight, setInsight] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetch_ = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
     try {
-      setData(await api(`/dashboard?month=${monthStr(month)}`));
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+      const [d, ins] = await Promise.all([
+        api(`/dashboard?month=${monthStr(month)}`),
+        api(`/insights?month=${monthStr(month)}`).catch(() => null),
+      ]);
+      setData(d);
+      setInsight(ins?.insights?.[0] || null);
+    } catch (e) { setError(e.message); }
+    setLoading(false);
   }, [month]);
 
-  useEffect(() => { fetch_(); }, [fetch_]);
+  useEffect(() => { load(); }, [load]);
 
-  const shift = (dir) => setMonth(p => {
-    const d = new Date(p);
-    d.setMonth(d.getMonth() + dir);
-    return d;
-  });
+  const shift = dir => setMonth(p => { const d = new Date(p); d.setMonth(d.getMonth() + dir); return d; });
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#4f46e5" /></View>;
-  if (error) return <View style={styles.center}><Text style={styles.errorText}>{error}</Text><TouchableOpacity onPress={fetch_}><Text style={styles.retry}>Retry</Text></TouchableOpacity></View>;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+
+  if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#4f46e5" /></View>;
+  if (error) return <View style={s.center}><Text style={s.errText}>{error}</Text><TouchableOpacity onPress={load}><Text style={s.retry}>Retry</Text></TouchableOpacity></View>;
   if (!data) return null;
 
-  const { salary = 0, budget = 0, spent = 0, remaining = 0, categories = [], topExpenses = [], weeklyForecast = [] } = data;
-  const progress = budget > 0 ? Math.min(spent / budget, 1) : 0;
-  const overBudget = spent > budget;
-  const maxCat = Math.max(...categories.map(c => c.amount), 1);
+  const { budget: b, totalSpent, totalDiscount, remaining, utilization, categories, top5, weeks } = data;
+  const pct = Math.min(utilization || 0, 100);
+  const over = totalSpent > b.budget && b.budget > 0;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Month Picker */}
-      <View style={styles.monthPicker}>
-        <TouchableOpacity onPress={() => shift(-1)} style={styles.arrow}><Text style={styles.arrowText}>◀</Text></TouchableOpacity>
-        <Text style={styles.monthText}>{monthLabel(month)}</Text>
-        <TouchableOpacity onPress={() => shift(1)} style={styles.arrow}><Text style={styles.arrowText}>▶</Text></TouchableOpacity>
+    <ScrollView style={s.bg} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={s.header}>
+        <View>
+          <Text style={s.greeting}>{greeting}, {user?.name?.split(' ')[0]} 👋</Text>
+          <Text style={s.subGreeting}>Here's your expense overview</Text>
+        </View>
       </View>
 
-      {/* Budget Summary */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Budget Summary</Text>
-        <View style={styles.summaryRow}>
-          <SummaryItem label="Salary" value={fmt(salary)} color="#1f2937" />
-          <SummaryItem label="Budget" value={fmt(budget)} color="#4f46e5" />
+      {/* Budget Overview Card */}
+      <View style={s.card}>
+        <View style={s.row}>
+          <Text style={s.cardTitle}>Budget Overview</Text>
+          <TouchableOpacity style={s.monthPill}>
+            <TouchableOpacity onPress={() => shift(-1)}><Text style={s.arrTxt}>◀ </Text></TouchableOpacity>
+            <Text style={s.monthTxt}>{MONTHS[month.getMonth()]} {month.getFullYear()}</Text>
+            <TouchableOpacity onPress={() => shift(1)}><Text style={s.arrTxt}> ▶</Text></TouchableOpacity>
+          </TouchableOpacity>
         </View>
-        <View style={styles.summaryRow}>
-          <SummaryItem label="Spent" value={fmt(spent)} color={overBudget ? '#dc2626' : '#1f2937'} />
-          <SummaryItem label="Remaining" value={fmt(remaining)} color={remaining >= 0 ? '#16a34a' : '#dc2626'} />
+
+        {/* Circular progress + spent/remaining */}
+        <View style={[s.row, { marginTop: 16, justifyContent: 'space-around' }]}>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={s.bigNum}>{fmt(totalSpent)}</Text>
+            <Text style={s.label}>Spent</Text>
+          </View>
+          <View style={s.circle}>
+            <Text style={[s.circPct, over && { color: '#dc2626' }]}>{Math.round(pct)}%</Text>
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={[s.bigNum, { color: remaining >= 0 ? '#16a34a' : '#dc2626' }]}>{fmt(remaining)}</Text>
+            <Text style={s.label}>Remaining</Text>
+          </View>
         </View>
-        <View style={styles.progressBg}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: overBudget ? '#dc2626' : '#4f46e5' }]} />
+
+        {/* Progress bar */}
+        <View style={s.progBg}>
+          <View style={[s.progFill, { width: `${Math.min(pct, 100)}%`, backgroundColor: over ? '#dc2626' : '#4f46e5' }]} />
         </View>
-        <Text style={[styles.progressLabel, overBudget && { color: '#dc2626' }]}>{Math.round(progress * 100)}% used</Text>
+        <View style={s.row}>
+          <Text style={s.progLabel}>of {fmt(b.budget)} budget</Text>
+          <Text style={s.progLabel}>{Math.round(pct)}% used</Text>
+        </View>
       </View>
 
-      {/* Category Breakdown */}
+      {/* Quick Stats */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+        {[
+          { icon: '💰', label: 'Total Budget', val: fmt(b.budget), color: '#4f46e5' },
+          { icon: '📈', label: 'Spent Till Now', val: fmt(totalSpent), color: '#f59e0b' },
+          { icon: '💵', label: 'Remaining', val: fmt(remaining), color: remaining >= 0 ? '#16a34a' : '#dc2626' },
+          { icon: '🏷️', label: 'Discount Saved', val: fmt(totalDiscount), color: '#06b6d4' },
+        ].map((s2, i) => (
+          <View key={i} style={[s.statCard, i === 0 && { marginLeft: 0 }]}>
+            <Text style={{ fontSize: 20 }}>{s2.icon}</Text>
+            <Text style={s.statLabel}>{s2.label}</Text>
+            <Text style={[s.statVal, { color: s2.color }]}>{s2.val}</Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* Category-wise Spend */}
       {categories.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Category Breakdown</Text>
-          {categories.map((c, i) => (
-            <View key={c.name} style={styles.catRow}>
-              <Text style={styles.catName}>{c.name}</Text>
-              <View style={styles.catBarBg}>
-                <View style={[styles.catBarFill, { width: `${(c.amount / maxCat) * 100}%`, backgroundColor: CAT_COLORS[i % CAT_COLORS.length] }]} />
-              </View>
-              <Text style={styles.catAmount}>{fmt(c.amount)}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Top 5 Expenses */}
-      {topExpenses.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Top 5 Expenses</Text>
-          {topExpenses.slice(0, 5).map((e, i) => (
-            <View key={i} style={styles.expenseRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.expenseName}>{e.description || e.category}</Text>
-                <Text style={styles.expenseDate}>{e.date}</Text>
-              </View>
-              <Text style={styles.expenseAmount}>{fmt(e.amount)}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Weekly Forecast */}
-      {weeklyForecast.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Weekly Forecast</Text>
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Category-wise Spend</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {weeklyForecast.map((w, i) => (
-              <View key={i} style={styles.forecastCard}>
-                <Text style={styles.forecastWeek}>{w.label || `Week ${i + 1}`}</Text>
-                <Text style={styles.forecastAmount}>{fmt(w.predicted)}</Text>
-                {w.actual != null && <Text style={styles.forecastActual}>Actual: {fmt(w.actual)}</Text>}
+            {categories.map((c, i) => (
+              <View key={i} style={s.catItem}>
+                <View style={s.catIcon}><Text style={{ fontSize: 24 }}>{CAT_ICONS[c.category] || '📦'}</Text></View>
+                <Text style={s.catName} numberOfLines={1}>{c.category}</Text>
+                <Text style={s.catAmt}>{fmt(c.total)}</Text>
+                <Text style={s.catPct}>({c.percent}%)</Text>
               </View>
             ))}
           </ScrollView>
         </View>
       )}
+
+      {/* AI Insight */}
+      {insight && (
+        <View style={[s.card, { flexDirection: 'row', alignItems: 'center' }]}>
+          <Text style={{ fontSize: 28, marginRight: 12 }}>🤖</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: '700', color: '#1f2937', marginBottom: 2 }}>AI Insight ✨</Text>
+            <Text style={{ fontSize: 13, color: '#6b7280', lineHeight: 18 }}>{insight.text}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Top 3 Spend Items */}
+      {top5.length > 0 && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Top 3 Spend Items</Text>
+          {top5.slice(0, 3).map((e, i) => (
+            <View key={i} style={s.topRow}>
+              <View style={[s.topBadge, { backgroundColor: ['#4f46e5', '#f59e0b', '#ef4444'][i] }]}>
+                <Text style={s.topBadgeTxt}>{i + 1}</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={s.topName} numberOfLines={1}>{e.product_name}</Text>
+                <Text style={s.topCat}>{e.category}</Text>
+              </View>
+              <Text style={s.topAmt}>{fmt(e.amount)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Weekly Spend Forecast */}
+      {weeks.length > 0 && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Weekly Spend Forecast</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {weeks.map((w, i) => {
+              const active = w.status === 'in_progress';
+              const done = w.status === 'covered';
+              return (
+                <View key={i} style={[s.weekCard, active && s.weekActive]}>
+                  <Text style={[s.weekTitle, active && { color: '#4f46e5' }]}>Week {w.week}</Text>
+                  <Text style={s.weekRange}>{w.dateRange}</Text>
+                  <Text style={s.weekAmt}>{fmt(w.actual || 0)}</Text>
+                  <View style={[s.weekBadge, done ? s.weekDone : active ? s.weekInProg : s.weekUp]}>
+                    <Text style={s.weekBadgeTxt}>{done ? '✅ Covered' : active ? '⏳ In Progress' : '📅 Upcoming'}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      <View style={{ height: 20 }} />
     </ScrollView>
   );
 }
 
-function SummaryItem({ label, value, color }) {
-  return (
-    <View style={styles.summaryItem}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={[styles.summaryValue, { color }]}>{value}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
-  content: { padding: 16, paddingBottom: 32 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f4f6' },
-  errorText: { color: '#dc2626', fontSize: 16, marginBottom: 12 },
+const s = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: '#f5f5ff' },
+  content: { padding: 16 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5ff' },
+  errText: { color: '#dc2626', fontSize: 16, marginBottom: 12 },
   retry: { color: '#4f46e5', fontSize: 16, fontWeight: '600' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 
-  monthPicker: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  arrow: { padding: 12 },
-  arrowText: { fontSize: 18, color: '#4f46e5' },
-  monthText: { fontSize: 18, fontWeight: '700', color: '#1f2937', marginHorizontal: 16 },
+  header: { marginBottom: 16 },
+  greeting: { fontSize: 22, fontWeight: '700', color: '#1f2937' },
+  subGreeting: { fontSize: 13, color: '#9ca3af', marginTop: 2 },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#4f46e5', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937', marginBottom: 12 },
 
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  summaryItem: { flex: 1 },
-  summaryLabel: { fontSize: 12, color: '#6b7280', marginBottom: 2 },
-  summaryValue: { fontSize: 18, fontWeight: '700' },
+  monthPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5ff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  monthTxt: { fontSize: 13, fontWeight: '600', color: '#4f46e5' },
+  arrTxt: { fontSize: 12, color: '#4f46e5' },
 
-  progressBg: { height: 8, backgroundColor: '#e5e7eb', borderRadius: 4, marginTop: 8, overflow: 'hidden' },
-  progressFill: { height: 8, borderRadius: 4 },
-  progressLabel: { fontSize: 12, color: '#6b7280', marginTop: 4, textAlign: 'right' },
+  bigNum: { fontSize: 22, fontWeight: '800', color: '#1f2937' },
+  label: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
 
-  catRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  catName: { width: 80, fontSize: 13, color: '#374151' },
-  catBarBg: { flex: 1, height: 12, backgroundColor: '#e5e7eb', borderRadius: 6, marginHorizontal: 8, overflow: 'hidden' },
-  catBarFill: { height: 12, borderRadius: 6 },
-  catAmount: { width: 70, fontSize: 13, color: '#374151', textAlign: 'right' },
+  circle: { width: 72, height: 72, borderRadius: 36, borderWidth: 5, borderColor: '#4f46e5', justifyContent: 'center', alignItems: 'center' },
+  circPct: { fontSize: 18, fontWeight: '800', color: '#4f46e5' },
 
-  expenseRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  expenseName: { fontSize: 14, fontWeight: '600', color: '#1f2937' },
-  expenseDate: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
-  expenseAmount: { fontSize: 15, fontWeight: '700', color: '#4f46e5' },
+  progBg: { height: 8, backgroundColor: '#e5e7eb', borderRadius: 4, marginTop: 16, overflow: 'hidden' },
+  progFill: { height: 8, borderRadius: 4 },
+  progLabel: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
 
-  forecastCard: { backgroundColor: '#eef2ff', borderRadius: 10, padding: 14, marginRight: 10, minWidth: 120, alignItems: 'center' },
-  forecastWeek: { fontSize: 13, fontWeight: '600', color: '#4f46e5', marginBottom: 4 },
-  forecastAmount: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
-  forecastActual: { fontSize: 12, color: '#6b7280', marginTop: 4 },
+  statCard: { backgroundColor: '#fff', borderRadius: 12, padding: 12, marginLeft: 10, width: (W - 52) / 2.5, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 },
+  statLabel: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
+  statVal: { fontSize: 16, fontWeight: '700', marginTop: 2 },
+
+  catItem: { alignItems: 'center', marginRight: 20, width: 72 },
+  catIcon: { width: 52, height: 52, borderRadius: 14, backgroundColor: '#f5f5ff', justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  catName: { fontSize: 11, color: '#6b7280', textAlign: 'center' },
+  catAmt: { fontSize: 13, fontWeight: '700', color: '#1f2937', marginTop: 2 },
+  catPct: { fontSize: 10, color: '#9ca3af' },
+
+  topRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  topBadge: { width: 26, height: 26, borderRadius: 13, justifyContent: 'center', alignItems: 'center' },
+  topBadgeTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  topName: { fontSize: 14, fontWeight: '600', color: '#1f2937' },
+  topCat: { fontSize: 12, color: '#4f46e5', marginTop: 1 },
+  topAmt: { fontSize: 15, fontWeight: '700', color: '#1f2937' },
+
+  weekCard: { borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', padding: 12, marginRight: 10, minWidth: 110, alignItems: 'center' },
+  weekActive: { borderColor: '#4f46e5', backgroundColor: '#f5f5ff' },
+  weekTitle: { fontSize: 13, fontWeight: '700', color: '#1f2937' },
+  weekRange: { fontSize: 10, color: '#9ca3af', marginTop: 2 },
+  weekAmt: { fontSize: 16, fontWeight: '800', color: '#1f2937', marginTop: 6 },
+  weekBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginTop: 6 },
+  weekDone: { backgroundColor: '#dcfce7' },
+  weekInProg: { backgroundColor: '#fef3c7' },
+  weekUp: { backgroundColor: '#f3f4f6' },
+  weekBadgeTxt: { fontSize: 10, fontWeight: '600', color: '#374151' },
 });
