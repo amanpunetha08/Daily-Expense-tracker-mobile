@@ -13,6 +13,7 @@ export default function Login() {
   const { loginWithEmail, register, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [isRegister, setIsRegister] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -24,7 +25,7 @@ export default function Login() {
     setLoading(true);
     try {
       if (isRegister) {
-        await register(email, password);
+        await register(name, email, password);
       } else {
         await loginWithEmail(email, password);
       }
@@ -58,6 +59,16 @@ export default function Login() {
         <Text style={styles.title}>{isRegister ? 'Create Account' : 'Sign In'}</Text>
 
         {!!error && <Text style={styles.error}>{error}</Text>}
+
+        {isRegister && (
+          <TextInput
+            style={styles.input}
+            placeholder="Full Name"
+            value={name}
+            onChangeText={setName}
+            placeholderTextColor="#9ca3af"
+          />
+        )}
 
         <TextInput
           style={styles.input}
